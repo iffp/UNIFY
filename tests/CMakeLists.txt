@@ -1,3 +1,8 @@
-add_executable(index_construction index_construction.cpp)
-add_executable(query_execution query_execution.cpp)
-add_executable(fvecs_to_bin fvecs_to_bin.cpp)
+add_executable(tests_index_construction index_construction.cpp)
+set_target_properties(tests_index_construction PROPERTIES OUTPUT_NAME index_construction)
+
+add_executable(tests_query_execution query_execution.cpp)
+set_target_properties(tests_query_execution PROPERTIES OUTPUT_NAME query_execution)
+
+add_executable(tests_fvecs_to_bin fvecs_to_bin.cpp)
+set_target_properties(tests_fvecs_to_bin PROPERTIES OUTPUT_NAME fvecs_to_bin)
