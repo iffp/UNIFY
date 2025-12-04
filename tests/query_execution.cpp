@@ -141,8 +141,8 @@ int main(int argc, char** argv) {
     auto end_time = high_resolution_clock::now();
     
     // Stop thread monitoring
-    done_monitoring = true;
-    monitor_thread.join();
+    done = true;
+    monitor.join();
 
 	// Compute time and QPS
     double query_time_sec = duration_cast<duration<double>>(end_time - start_time).count();
