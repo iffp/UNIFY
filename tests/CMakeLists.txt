@@ -1,3 +1,3 @@
-add_executable(buildindex_wrapper buildindex_wrapper.cpp)
-add_executable(search_wrapper search_wrapper.cpp)
+add_executable(index_construction index_construction.cpp)
+add_executable(query_execution query_execution.cpp)
 add_executable(fvecs_to_bin fvecs_to_bin.cpp)

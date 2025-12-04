@@ -127,20 +127,14 @@ int main(int argc, char** argv) {
     // Use all available threads for index construction
     int num_threads = thread::hardware_concurrency();
     omp_set_num_threads(num_threads);
-    
-    cout << "=== UNIFY Index Construction ===" << endl;
-    cout << "Data: " << data_bin << endl;
-    cout << "Attributes: " << attr_file << endl;
-    cout << "Output index: " << output_index << endl;
-    cout << "Parameters: M=" << M << ", ef_construction=" << ef_construction 
-         << ", num_slots=" << num_slots << ", seed=" << random_seed << endl;
-    cout << "Threads: " << num_threads << endl;
 
-    // ========== DATA LOADING (NOT TIMED) ==========
-    cout << "\nLoading data..." << endl;
+    // Start thread monitoring
+    atomic<bool> done_monitoring(false);
+    thread monitor_thread(monitor_thread_count, ref(done_monitoring));
+
+    // Load data
     auto [data, dim] = read_bin(data_bin);
     size_t num_points = data.size();
-    cout << "Loaded " << num_points << " vectors of dimension " << dim << endl;
 
     // Load attribute values
     vector<int> attributes = read_one_int_per_line(attr_file);
@@ -149,27 +143,11 @@ int main(int argc, char** argv) {
              << ") and attribute size (" << attributes.size() << ")\n";
         return 1;
     }
-    cout << "Loaded " << attributes.size() << " attribute values" << endl;
 
-    // Compute slot ranges (NOT TIMED - preprocessing)
-    cout << "\nComputing slot ranges..." << endl;
+    // Compute slot ranges (We include this in the index construction time)
+    auto start_time = high_resolution_clock::now();
     vector<pair<int64_t, int64_t>> slot_ranges = compute_slot_ranges(attributes, num_slots);
     
-    cout << "Slot ranges:" << endl;
-    for (size_t i = 0; i < slot_ranges.size(); i++) {
-        cout << "  Slot " << i << ": [" << slot_ranges[i].first 
-             << ", " << slot_ranges[i].second << "]" << endl;
-    }
-
-    // ========== INDEX CONSTRUCTION (TIMED) ==========
-    cout << "\n--- Starting index construction (TIMED) ---" << endl;
-    
-    // Start thread monitoring
-    atomic<bool> done_monitoring(false);
-    thread monitor_thread(monitor_thread_count, ref(done_monitoring));
-    
-    auto start_time = high_resolution_clock::now();
-
     // Initialize UNIFY index
     hannlib::L2Space space(dim);
     hannlib::ScalarHSIG<float> index(&space, slot_ranges, num_points, M, ef_construction, random_seed);
@@ -177,24 +155,17 @@ int main(int argc, char** argv) {
     // Insert all points with their attributes
     for (size_t i = 0; i < num_points; i++) {
         index.Insert(data[i].data(), i, attributes[i]);
-        
-        if ((i + 1) % 10000 == 0) {
-            cout << "  Inserted " << (i + 1) << " / " << num_points << " points" << endl;
-        }
     }
-    
-    // Save index
-    index.SaveIndex(output_index);
-    
     auto end_time = high_resolution_clock::now();
+    
+	// Save index
+    index.SaveIndex(output_index);
     
     // Stop thread monitoring
     done_monitoring = true;
     monitor_thread.join();
-    
-    cout << "--- Index construction complete ---\n" << endl;
 
-    // ========== TIMING OUTPUT ==========
+    // Report build time and peak threads
     double build_time_sec = duration_cast<duration<double>>(end_time - start_time).count();
     
     cout << "BUILD_TIME_SECONDS: " << build_time_sec << endl;
@@ -202,7 +173,6 @@ int main(int argc, char** argv) {
     
     // Memory footprint
     peak_memory_footprint();
-    
     cout << "\nIndex saved to: " << output_index << endl;
     
     return 0;
