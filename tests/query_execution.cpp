@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     std::thread monitor(monitor_thread_count, std::ref(done));
 
 	// Parameters
-    if (argc != 12) {
+    if (argc != 13) {
         cerr << "Usage: " << argv[0] << " --query_path <query.fvecs> "
              << "--query_ranges_file <query_ranges.csv> "
              << "--groundtruth_file <groundtruth.ivecs> "
