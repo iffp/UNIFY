@@ -10,13 +10,75 @@
 #include <chrono>
 #include <thread>
 #include <atomic>
-#include <omp.h>
+#include <mutex>
 
 #include "../hannlib/api.h"
 #include "../include/fanns_survey_helpers.cpp"
 
 // Global atomic for peak thread count
 std::atomic<int> peak_threads(0);
+
+/*
+ * ParallelFor - replacement for the OpenMP '#pragma omp parallel for' directive
+ * Only handles a subset of functionality (no reductions etc)
+ * Process ids from start (inclusive) to end (EXCLUSIVE)
+ *
+ * The method is borrowed from nmslib (same as used in UNIFY Python bindings)
+ */
+template <class Function>
+inline void ParallelFor(size_t start, size_t end, size_t numThreads, Function fn) {
+    if (numThreads <= 0) {
+        numThreads = std::thread::hardware_concurrency();
+    }
+
+    if (numThreads == 1) {
+        for (size_t id = start; id < end; id++) {
+            fn(id, 0);
+        }
+    } else {
+        std::vector<std::thread> threads;
+        std::atomic<size_t> current(start);
+
+        // keep track of exceptions in threads
+        // https://stackoverflow.com/a/32428427/1713196
+        std::exception_ptr lastException = nullptr;
+        std::mutex lastExceptMutex;
+
+        for (size_t threadId = 0; threadId < numThreads; ++threadId) {
+            threads.push_back(std::thread(
+                [&, threadId] {
+                    while (true) {
+                        size_t id = current.fetch_add(1);
+
+                        if (id >= end) {
+                            break;
+                        }
+
+                        try {
+                            fn(id, threadId);
+                        } catch (...) {
+                            std::unique_lock<std::mutex> lastExcepLock(lastExceptMutex);
+                            lastException = std::current_exception();
+                            /*
+                             * This will work even when current is the largest value that
+                             * size_t can fit, because fetch_add returns the previous value
+                             * before the increment (what will result in overflow
+                             * and produce 0 instead of current + 1).
+                             */
+                            current = end;
+                            break;
+                        }
+                    }
+                }));
+        }
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        if (lastException) {
+            std::rethrow_exception(lastException);
+        }
+    }
+}
 
 using namespace std;
 using namespace std::chrono;
@@ -125,8 +187,7 @@ int main(int argc, char** argv) {
     size_t random_seed = stoull(argv[7]);
 
     // Use all available threads for index construction
-    int num_threads = thread::hardware_concurrency();
-    omp_set_num_threads(num_threads);
+	size_t num_threads = thread::hardware_concurrency();
 
     // Start thread monitoring
     atomic<bool> done_monitoring(false);
@@ -152,11 +213,17 @@ int main(int argc, char** argv) {
     hannlib::L2Space space(dim);
     hannlib::ScalarHSIG<float> index(&space, slot_ranges, num_points, M, ef_construction, random_seed);
     
-    // Insert all points with their attributes
-    for (size_t i = 0; i < num_points; i++) {
-        index.Insert(data[i].data(), i, attributes[i]);
-    }
-    auto end_time = high_resolution_clock::now();
+    // Insert all points with their attributes (using the parallel for loop)
+	
+	// insert first point sequentially (entry point)
+	index.Insert(data[0].data(), 0, attributes[0]);
+
+	// insert remaining points in parallel
+	ParallelFor(1, num_points, num_threads, [&](size_t i, size_t thread_id) {
+		index.Insert(data[i].data(), i, attributes[i]);
+	});
+
+	auto end_time = high_resolution_clock::now();
     
 	// Save index
     index.SaveIndex(output_index);
